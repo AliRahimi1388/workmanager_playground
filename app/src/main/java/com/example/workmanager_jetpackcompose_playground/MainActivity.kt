@@ -2,13 +2,17 @@ package com.example.workmanager_jetpackcompose_playground
 
 import android.Manifest
 import android.app.AlertDialog
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.viewModels
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -32,16 +36,44 @@ import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
+import androidx.work.workDataOf
 import coil.compose.rememberAsyncImagePainter
 import com.example.workmanager_jetpackcompose_playground.ui.theme.WorkManagerJetpackComposeplayGroundTheme
 
 class MainActivity : ComponentActivity() {
+
+    private val REQUEST_CODE_NOTIFICATION_PERMISSION = 101
+
+    private val viewModel by viewModels<PhotoViewModel>()
+
+    private var downloadUrl: String? = null // Use a nullable String for download URL
+
+    private val requestNotificationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { results ->
+        val granted = results[Manifest.permission.POST_NOTIFICATIONS] ?: false
+        if (granted) {
+            // Permission granted, enable notifications
+            // (Your notification logic here)
+        } else {
+            // Permission denied, inform user
+            Toast.makeText(this, "Notifications might be limited", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        val downloadRequest = OneTimeWorkRequestBuilder<DownloadWorker>().setConstraints(
-            Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
-        ).build()
+
+        viewModel.imageUri.observe(this) { newUrl ->
+            downloadUrl = newUrl?.toString()
+        }
+
+        val downloadRequest = OneTimeWorkRequestBuilder<DownloadWorker>()
+            .setInputData(workDataOf(WorkerKeys.IMAGE_URL to downloadUrl))
+            .setConstraints(
+                Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
+            ).build()
 
 
         val colorFilterRequest = OneTimeWorkRequestBuilder<ColorFilterWorker>().build()
@@ -136,23 +168,7 @@ class MainActivity : ComponentActivity() {
     }
 
 
-    private val REQUEST_CODE_NOTIFICATION_PERMISSION = 101
-
-
-    private val requestNotificationPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions()
-    ) { results ->
-        val granted = results[Manifest.permission.POST_NOTIFICATIONS] ?: false
-        if (granted) {
-            // Permission granted, enable notifications
-            // (Your notification logic here)
-        } else {
-            // Permission denied, inform user
-            Toast.makeText(this, "Notifications might be limited", Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    fun requestNotificationPermission() {
+    private fun requestNotificationPermission() {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
             != PackageManager.PERMISSION_GRANTED
         ) {
@@ -184,5 +200,20 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+
+        val uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            intent.getParcelableExtra(
+                Intent.EXTRA_STREAM, Uri::class.java
+            )
+        } else {
+            intent.getParcelableExtra(Intent.EXTRA_STREAM)
+        } ?: return
+
+        viewModel.updateUncompressedUri(uri)
+
     }
 }
